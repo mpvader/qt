@@ -93,10 +93,57 @@ public:
 
     void itemAppended() {
         Q_Q(QDeclarativeVisualItemModel);
+
         QDeclarativeVisualItemModelAttached *attached = QDeclarativeVisualItemModelAttached::properties(children.last().item);
         attached->setIndex(children.count()-1);
         emit q->itemsInserted(children.count()-1, 1);
         emit q->countChanged();
+        emit q->childrenChanged();
+    }
+
+    void updateIndices()
+    {
+        QList<Item>::iterator i;
+        int n;
+
+        for (i = children.begin(); i != children.end(); ++i) {
+            QDeclarativeVisualItemModelAttached *attached = QDeclarativeVisualItemModelAttached::properties((*i).item);
+            attached->setIndex(n++);
+        }
+    }
+
+    void insert(int i, QDeclarativeItem *item)
+    {
+        Q_Q(QDeclarativeVisualItemModel);
+
+        if (i < 0 || i > children.count())
+            return;
+
+        children.insert(i, Item(item));
+        updateIndices();
+
+        emit q->itemsInserted(i, 1);
+        emit q->countChanged();
+        emit q->childrenChanged();
+    }
+
+    void remove(int i)
+    {
+        Q_Q(QDeclarativeVisualItemModel);
+
+        if (i < 0 || i >= children.count())
+            return;
+
+        Item item = children[i];
+        children.removeAt(i);
+        updateIndices();
+
+        emit q->countChanged();
+        emit q->itemsRemoved(i, 1);
+        emit q->childrenChanged();
+        emit q->destroyingItem(item.item);
+
+        delete item.item;
     }
 
     void emitChildrenChanged() {
@@ -247,6 +294,33 @@ int QDeclarativeVisualItemModel::indexOf(QDeclarativeItem *item, QObject *) cons
 QDeclarativeVisualItemModelAttached *QDeclarativeVisualItemModel::qmlAttachedProperties(QObject *obj)
 {
     return QDeclarativeVisualItemModelAttached::properties(obj);
+}
+
+void QDeclarativeVisualItemModel::append(QDeclarativeItem *item)
+{
+    QDeclarativeListProperty<QDeclarativeItem> childs(children());
+    QDeclarativeVisualItemModelPrivate::children_append(&childs, item);
+}
+
+void QDeclarativeVisualItemModel::insert(int i, QDeclarativeItem *item)
+{
+    Q_D(QDeclarativeVisualItemModel);
+    d->insert(i, item);
+}
+
+void QDeclarativeVisualItemModel::clear()
+{
+    int n = count();
+
+    while (--n >= 0)
+        remove(n);
+
+}
+
+void QDeclarativeVisualItemModel::remove(int i)
+{
+    Q_D(QDeclarativeVisualItemModel);
+    d->remove(i);
 }
 
 //============================================================================

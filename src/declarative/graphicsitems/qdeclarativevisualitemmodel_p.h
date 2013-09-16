@@ -130,6 +130,11 @@ public:
 
     static QDeclarativeVisualItemModelAttached *qmlAttachedProperties(QObject *obj);
 
+    Q_INVOKABLE void append(QDeclarativeItem *item);
+    Q_INVOKABLE void clear(void);
+    Q_INVOKABLE void insert(int i, QDeclarativeItem *item);
+    Q_INVOKABLE void remove(int i);
+
 Q_SIGNALS:
     void childrenChanged();
 
