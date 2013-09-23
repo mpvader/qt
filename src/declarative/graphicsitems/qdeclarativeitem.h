@@ -94,6 +94,7 @@ class Q_DECLARATIVE_EXPORT QDeclarativeItem : public QGraphicsObject, public QDe
     Q_PROPERTY(bool smooth READ smooth WRITE setSmooth NOTIFY smoothChanged)
     Q_PROPERTY(qreal implicitWidth READ implicitWidth WRITE setImplicitWidth NOTIFY implicitWidthChanged REVISION 1)
     Q_PROPERTY(qreal implicitHeight READ implicitHeight WRITE setImplicitHeight NOTIFY implicitHeightChanged REVISION 1)
+    Q_PROPERTY(bool show READ isShown WRITE setShow NOTIFY showChanged)
 
     Q_ENUMS(TransformOrigin)
     Q_CLASSINFO("DefaultProperty", "data")
@@ -139,6 +140,11 @@ public:
     bool smooth() const;
     void setSmooth(bool);
 
+    bool isShown() const;
+    void setShow(bool);
+
+    void setVisible(bool visible);
+
     QRectF boundingRect() const;
     virtual void paint(QPainter *, const QStyleOptionGraphicsItem *, QWidget *);
 
@@ -166,6 +172,7 @@ Q_SIGNALS:
     void clipChanged(bool);
     Q_REVISION(1) void implicitWidthChanged();
     Q_REVISION(1) void implicitHeightChanged();
+    void showChanged(bool);
 
 protected:
     bool isComponentComplete() const;

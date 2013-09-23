@@ -3759,6 +3759,67 @@ qint64 QDeclarativeItemPrivate::restart(QElapsedTimer &t)
         return ((QElapsedTimerConsistentTimeHack*)&t)->restart();
 }
 
+/**
+ * The show property is intended to hide parts of the ui
+ * which are not applicable.
+ *
+ * The property is almost exactly equal to the visable
+ * property but differs in the fact that it should not be
+ * used for navigation / modified by common code. The qml
+ * page stack / popup do use the visible property to hide
+ * pages etc. Since this property is set to all its children,
+ * hiding an Item by binding visible to something gets
+ * unbinded and visible again by the navigation code, which
+ * is not the intention. It also leads to many completely
+ * unnecesarry relayout when a page is shown again, which
+ * can also have unwanted side effects.
+ *
+ * When show is set to false, visible is set to false and
+ * all attempts to change the visibily are ignored. When
+ * set to true, visible is set to true, and visible can be
+ * updated again. The default value is true.
+ */
+bool QDeclarativeItemPrivate::isShown() const
+{
+    return mShow;
+}
+
+void QDeclarativeItemPrivate::setShow(bool show)
+{
+    Q_Q(QDeclarativeItem);
+
+    if (mShow == show)
+        return;
+
+    mShow = true;
+    q->setVisible(show);
+
+    mShow = show;
+    emit q->showChanged(mShow);
+}
+
+bool QDeclarativeItem::isShown() const
+{
+    Q_D(const QDeclarativeItem);
+    return d->isShown();
+}
+
+void QDeclarativeItem::setShow(bool show)
+{
+    Q_D(QDeclarativeItem);
+    d->setShow(show);
+}
+
+void QDeclarativeItem::setVisible(bool visible)
+{
+    Q_D(QDeclarativeItem);
+
+    if (!d->isShown())
+        return;
+
+    QGraphicsObject::setVisible(visible);
+}
+
 QT_END_NAMESPACE
 
 #include <moc_qdeclarativeitem.cpp>

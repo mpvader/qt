@@ -102,8 +102,11 @@ public:
         attached = static_cast<QDeclarativeListViewAttached*>(qmlAttachedPropertiesObject<QDeclarativeListView>(item));
         if (attached)
             attached->setView(view);
+
+        // assuming the view destroys the items, this will disconnect automatically
+        item->connect(item, SIGNAL(showChanged(bool)), view, SLOT(showChanged()));
     }
-    ~FxListItem() {}
+
     qreal position() const {
         if (section) {
             if (view->orientation() == QDeclarativeListView::Vertical)
@@ -115,20 +118,32 @@ public:
         }
     }
 
+    qreal height() const {
+        if (!item->isShown())
+            return 0;
+        return item->height();
+    }
+
+    qreal width() const {
+        if (!item->isShown())
+            return 0;
+        return item->width();
+    }
+
     qreal itemPosition() const {
         if (view->orientation() == QDeclarativeListView::Vertical)
             return item->y();
         else
-            return (view->effectiveLayoutDirection() == Qt::RightToLeft ? -item->width()-item->x() : item->x());
+            return (view->effectiveLayoutDirection() == Qt::RightToLeft ? -width()-item->x() : item->x());
     }
     qreal size() const {
         if (section)
-            return (view->orientation() == QDeclarativeListView::Vertical ? item->height()+section->height() : item->width()+section->width());
+            return (view->orientation() == QDeclarativeListView::Vertical ? height()+section->height() : width()+section->width());
         else
-            return (view->orientation() == QDeclarativeListView::Vertical ? item->height() : item->width());
+            return (view->orientation() == QDeclarativeListView::Vertical ? height() : width());
     }
     qreal itemSize() const {
-        return (view->orientation() == QDeclarativeListView::Vertical ? item->height() : item->width());
+        return (view->orientation() == QDeclarativeListView::Vertical ? height() : width());
     }
     qreal sectionSize() const {
         if (section)
@@ -137,11 +152,11 @@ public:
     }
     qreal endPosition() const {
         if (view->orientation() == QDeclarativeListView::Vertical) {
-            return item->y() + (item->height() >= 1.0 ? item->height() : 1) - 1;
+            return item->y() + (height() >= 1.0 ? height() : 1) - 1;
         } else {
             return (view->effectiveLayoutDirection() == Qt::RightToLeft
-                    ? -item->width()-item->x() + (item->width() >= 1.0 ? item->width() : 1)
-                    : item->x() + (item->width() >= 1.0 ? item->width() : 1)) - 1;
+                    ? -width()-item->x() + (width() >= 1.0 ? width() : 1)
+                    : item->x() + (width() >= 1.0 ? width() : 1)) - 1;
         }
     }
     void setPosition(qreal pos) {
@@ -157,7 +172,7 @@ public:
                     section->setX(-section->width()-pos);
                     pos += section->width();
                 }
-                item->setX(-item->width()-pos);
+                item->setX(-width()-pos);
             } else {
                 if (section) {
                     section->setX(pos);
@@ -174,8 +189,12 @@ public:
             item->setWidth(size);
     }
     bool contains(qreal x, qreal y) const {
-        return (x >= item->x() && x < item->x() + item->width() &&
-                y >= item->y() && y < item->y() + item->height());
+        return (x >= item->x() && x < item->x() + width() &&
+                y >= item->y() && y < item->y() + height());
+    }
+
+    bool isShown() const {
+        return item->isShown();
     }
 
     QDeclarativeItem *item;
@@ -1198,12 +1217,16 @@ void QDeclarativeListViewPrivate::updateCurrent(int modelIndex)
 
 void QDeclarativeListViewPrivate::updateAverage()
 {
-    if (!visibleItems.count())
-        return;
     qreal sum = 0.0;
-    for (int i = 0; i < visibleItems.count(); ++i)
-        sum += visibleItems.at(i)->size();
-    averageSize = qRound(sum / visibleItems.count());
+    int count = 0;
+
+    for (int i = 0; i < visibleItems.count(); ++i) {
+        if (visibleItems.at(i)->isShown()) {
+            sum += visibleItems.at(i)->size();
+            count++;
+        }
+    }
+    averageSize = (count ? qRound(sum / count) : 0);
 }
 
 void QDeclarativeListViewPrivate::updateFooter()
@@ -2877,10 +2900,28 @@ void QDeclarativeListView::incrementCurrentIndex()
 {
     Q_D(QDeclarativeListView);
     int count = d->model ? d->model->count() : 0;
-    if (count && (currentIndex() < count - 1 || d->wrap)) {
-        d->moveReason = QDeclarativeListViewPrivate::SetIndex;
-        int index = currentIndex()+1;
-        setCurrentIndex((index >= 0 && index < count) ? index : 0);
+    int index = currentIndex();
+
+    while (++index < count) {
+        bool visible;
+
+        /* Skip the invisible items */
+        FxListItem *item = d->visibleItem(index);
+        if (item) {
+            visible = item->isShown();
+        } else {
+            item = d->createItem(index);
+            if (item == 0)
+                return;
+            visible = item->isShown();
+            delete item;
+        }
+
+        if (visible) {
+            d->moveReason = QDeclarativeListViewPrivate::SetIndex;
+            setCurrentIndex(index);
+            return;
+        }
     }
 }
 
@@ -2896,11 +2937,29 @@ void QDeclarativeListView::incrementCurrentIndex()
 void QDeclarativeListView::decrementCurrentIndex()
 {
     Q_D(QDeclarativeListView);
-    int count = d->model ? d->model->count() : 0;
-    if (count && (currentIndex() > 0 || d->wrap)) {
-        d->moveReason = QDeclarativeListViewPrivate::SetIndex;
-        int index = currentIndex()-1;
-        setCurrentIndex((index >= 0 && index < count) ? index : count-1);
+
+    int index = currentIndex();
+
+    while (--index >= 0) {
+        bool visible;
+
+        /* Skip the invisible items */
+        FxListItem *item = d->visibleItem(index);
+        if (item) {
+            visible = item->isShown();
+        } else {
+            item = d->createItem(index);
+            if (item == 0)
+                return;
+            visible = item->isShown();
+            delete item;
+        }
+
+        if (visible) {
+            d->moveReason = QDeclarativeListViewPrivate::SetIndex;
+            setCurrentIndex(index);
+            return;
+        }
     }
 }
 
@@ -3123,6 +3182,22 @@ void QDeclarativeListView::updateSections()
         if (d->itemCount)
             d->layout();
     }
+}
+
+void QDeclarativeListView::showChanged()
+{
+    Q_D(QDeclarativeListView);
+
+    if (!d->isValid() || !isComponentComplete())
+        return;
+
+    if (d->currentItem != 0) {
+        d->positionViewAtIndex(d->currentIndex, QDeclarativeListView::Contain);
+        d->updateCurrent(d->currentIndex);
+    }
+
+    d->updateSections();
+    d->layout();
 }
 
 void QDeclarativeListView::refill()
