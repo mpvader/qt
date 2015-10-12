@@ -636,6 +636,7 @@ void QVNCServer::newConnection()
         delete client;
 
     client = serverSocket->nextPendingConnection();
+    qDebug() << "QVNCServer new incoming connection from" << client->peerAddress().toString();
     connect(client,SIGNAL(readyRead()),this,SLOT(readClient()));
     connect(client,SIGNAL(disconnected()),this,SLOT(discardClient()));
     handleMsg = false;
@@ -664,11 +665,77 @@ void QVNCServer::readClient()
                 char proto[13];
                 client->read(proto, 12);
                 proto[12] = '\0';
-                qDebug("Client protocol version %s", proto);
-                // No authentication
-                quint32 auth = htonl(1);
+                qDebug("QVNCServer Client protocol version %s", proto);
+
+                if (password.length() == 0) {
+                    // no password at all, come in, you are quite welcome!
+                    qDebug("QVNCServer No password configured, accepting connection");
+                    quint32 auth = htonl(1);
+                    client->write((char *) &auth, sizeof(auth));
+                    state = Init;
+                } else {
+                    // vnc password authentication
+                    quint32 auth = htonl(2);
+                    client->write((char *) &auth, sizeof(auth));
+
+                    // Create and random challenge string as the challenge
+                    //      Note: This is linux only! For windows one ought to use this one:
+                    //      https://en.wikipedia.org/wiki/CryptGenRandom
+                    //      TODO: maybe add some feature to make compiling fail under windows?
+                    QFile file("/dev/urandom");
+                    if (!file.open(QIODevice::ReadOnly)) {
+                        qCritical() << "QVNCServer configured to use a password, but /dev/urandom "
+                                       "is not available. Disconnecting!!";
+                        disconnectClient();
+                        break;
+                    }
+
+                    qint64 bytesRead = file.read((char *) challenge, CHALLENGESIZE);
+                    if (bytesRead != CHALLENGESIZE) {
+                        qCritical() << "QVNCServer could not read the right number of random bytes from "
+                                       "/dev/urandom Disconnecting!!";
+                        disconnectClient();
+                        break;
+                    }
+
+                    file.close();
+
+                    // Send it
+                    client->write((char *) challenge, CHALLENGESIZE);
+                    state = SecurityResult;
+                }
+            }
+            break;
+
+        case SecurityResult:
+            if (client->bytesAvailable() >= CHALLENGESIZE)
+            {
+                unsigned char response[CHALLENGESIZE];
+                client->read((char *) response, CHALLENGESIZE);
+
+                // Encrypt the challenge
+                // the key is the password padded with 0, and max length of 8.
+                QString key = password.leftJustified(8, 0);
+                deskey((unsigned char *) key.toLatin1().data(), EN0);
+
+                for (int i = 0; i < CHALLENGESIZE; i += 8)
+                    des(challenge+i, challenge+i);
+
+                // Check if the password matched by comparing our encrypted challenge
+                // with the response as sent by the client.
+                bool ok = (memcmp(challenge, response, CHALLENGESIZE) == 0);
+
+                qDebug("QVNCServer Authentication %s", ok ? "passed!" : "failed!");
+
+                quint32 auth = htonl(ok ? 0 : 1);
                 client->write((char *) &auth, sizeof(auth));
-                state = Init;
+                if (ok) {
+                    state = Init;
+                } else {
+                    client->waitForBytesWritten(2000);
+                    disconnectClient();
+                    memset(challenge, 0, CHALLENGESIZE);
+                }
             }
             break;
 
@@ -2030,6 +2097,7 @@ void QVNCServer::checkUpdate()
 
 void QVNCServer::discardClient()
 {
+    qDebug() << "QVNCServer disconnected from " << client->peerAddress().toString();
     timer->stop();
     state = Unconnected;
     delete encoder;
@@ -2196,6 +2264,11 @@ bool QVNCScreen::connect(const QString &displaySpec)
         if (args.indexOf(depthRegexp) != -1)
             d = depthRegexp.cap(1).toInt();
 
+        // Besides a-zA-Z0-9, / and +, a base64 string can also contain a trailing =
+        QRegExp passwordRegexp(QLatin1String("^password=([a-zA-Z0-9+\\/=]+)$"));
+        if (args.indexOf(passwordRegexp) != -1)
+            d_ptr->password = QString::fromLatin1(QByteArray::fromBase64(passwordRegexp.cap(1).toLatin1()));
+
         QRegExp sizeRegexp(QLatin1String("^size=(\\d+)x(\\d+)$"));
         if (args.indexOf(sizeRegexp) != -1) {
             dw = w = sizeRegexp.cap(1).toInt();
@@ -2264,6 +2337,7 @@ bool QVNCScreen::initDevice()
     }
     d_ptr->vncServer = new QVNCServer(this, displayId);
     d_ptr->vncServer->setRefreshRate(d_ptr->refreshRate);
+    d_ptr->vncServer->setPassword(d_ptr->password);
 
     switch (depth()) {
 #ifdef QT_QWS_DEPTH_32

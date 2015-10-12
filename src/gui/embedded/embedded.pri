@@ -136,8 +136,10 @@ embedded {
 		VNCDIR = $$QT_SOURCE_TREE/src/plugins/gfxdrivers/vnc
 		INCLUDEPATH += $$VNCDIR
 		HEADERS += $$VNCDIR/qscreenvnc_qws.h \
-			   $$VNCDIR/qscreenvnc_p.h
-		SOURCES += $$VNCDIR/qscreenvnc_qws.cpp
+				$$VNCDIR/qscreenvnc_p.h \
+				$$VNCDIR/d3des.h
+		SOURCES += $$VNCDIR/qscreenvnc_qws.cpp \
+				$$VNCDIR/d3des.c
 	}
 
 	contains( gfx-drivers, transformed ) {
