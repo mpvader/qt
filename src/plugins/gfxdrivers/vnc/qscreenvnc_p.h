@@ -257,7 +257,7 @@ public:
     bool doOnScreenSurface;
     QVNCDirtyMap *dirty;
     int refreshRate;
-    QString password;
+    QString passwordFile;
     QVNCServer *vncServer;
 
 #if !defined(QT_NO_QWS_MULTIPROCESS) && !defined(QT_NO_SHAREDMEMORY)
@@ -446,8 +446,7 @@ public:
     void setDirtyCursor() { dirtyCursor = true; setDirty(); }
     inline bool isConnected() const { return state == Connected; }
     inline void setRefreshRate(int rate) { refreshRate = rate; }
-    inline void setPassword(const QString &pwd) { password = pwd; }
-
+    inline void setPasswordFile(const QString &pwdFile) { passwordFile = pwdFile; }
     enum ClientMsg { SetPixelFormat = 0,
                      FixColourMapEntries = 1,
                      SetEncodings = 2,
@@ -482,6 +481,7 @@ private:
     void keyEvent();
     void clientCutText();
     bool pixelConversionNeeded() const;
+    bool readPasswordFile(QString &password);
     inline void disconnectClient() {
         client->close();  // automaticaly calls discardClient()
         delete client;
@@ -502,7 +502,7 @@ private:
     QTcpSocket *client;
     ClientState state;
     unsigned char challenge[CHALLENGESIZE];
-    QString password;
+    QString passwordFile;
     quint8 msgType;
     bool handleMsg;
     QRfbPixelFormat pixelFormat;

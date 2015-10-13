@@ -657,6 +657,17 @@ void QVNCServer::newConnection()
         QWSServer::instance()->enablePainting(true);
 }
 
+bool QVNCServer::readPasswordFile(QString &password) {
+    QFile file(passwordFile);
+    if (passwordFile.isEmpty() || !file.open(QIODevice::ReadOnly))
+        return false;
+
+    password = file.readLine(8).data();
+    password.remove('\n'); // QFile::readLine() for some reason includes the /n on which it stops reading
+    file.close();
+    return true;
+}
+
 void QVNCServer::readClient()
 {
     switch (state) {
@@ -667,12 +678,21 @@ void QVNCServer::readClient()
                 proto[12] = '\0';
                 qDebug("QVNCServer Client protocol version %s", proto);
 
-                if (password.length() == 0) {
-                    // no password at all, come in, you are quite welcome!
+                QString password;
+                bool passwordReadOK = readPasswordFile(password);
+
+                if (passwordFile.isEmpty() || (passwordReadOK && password.isEmpty())) {
+                    // Password file not set, of set but is an empty file: come on in!
                     qDebug("QVNCServer No password configured, accepting connection");
                     quint32 auth = htonl(1);
                     client->write((char *) &auth, sizeof(auth));
                     state = Init;
+                } else if (!passwordFile.isEmpty() && !passwordReadOK) {
+                    // Password file set, but can't be read: disconnect.
+                    qCritical() << "QVNCServer configured to use a password, but the file containing "
+                                   "the password can't be read. Disconnecting!!";
+                    disconnectClient();
+                    break;
                 } else {
                     // vnc password authentication
                     quint32 auth = htonl(2);
@@ -713,11 +733,19 @@ void QVNCServer::readClient()
                 unsigned char response[CHALLENGESIZE];
                 client->read((char *) response, CHALLENGESIZE);
 
-                // Encrypt the challenge
-                // the key is the password padded with 0, and max length of 8.
+                // Read the password and encrypt. DES expects an 8 byte password, padded with 0's
+                QString password;
+                bool readOK = readPasswordFile(password);
+                if (!readOK) {
+                    // Password file set, but can't be read. Strange, since on connect it could be read.
+                    qCritical() << "QVNCServer configured to use a password, but the file containing "
+                                   "the password can't be read during SecurityResult. Disconnecting!!";
+                    disconnectClient();
+                    break;
+                }
+
                 QString key = password.leftJustified(8, 0);
                 deskey((unsigned char *) key.toLatin1().data(), EN0);
-
                 for (int i = 0; i < CHALLENGESIZE; i += 8)
                     des(challenge+i, challenge+i);
 
@@ -2264,10 +2292,9 @@ bool QVNCScreen::connect(const QString &displaySpec)
         if (args.indexOf(depthRegexp) != -1)
             d = depthRegexp.cap(1).toInt();
 
-        // Besides a-zA-Z0-9, / and +, a base64 string can also contain a trailing =
-        QRegExp passwordRegexp(QLatin1String("^password=([a-zA-Z0-9+\\/=]+)$"));
+        QRegExp passwordRegexp(QLatin1String("^passwordFile=([^\\0]+)$"));
         if (args.indexOf(passwordRegexp) != -1)
-            d_ptr->password = QString::fromLatin1(QByteArray::fromBase64(passwordRegexp.cap(1).toLatin1()));
+            d_ptr->passwordFile = passwordRegexp.cap(1);
 
         QRegExp sizeRegexp(QLatin1String("^size=(\\d+)x(\\d+)$"));
         if (args.indexOf(sizeRegexp) != -1) {
@@ -2337,7 +2364,7 @@ bool QVNCScreen::initDevice()
     }
     d_ptr->vncServer = new QVNCServer(this, displayId);
     d_ptr->vncServer->setRefreshRate(d_ptr->refreshRate);
-    d_ptr->vncServer->setPassword(d_ptr->password);
+    d_ptr->vncServer->setPasswordFile(d_ptr->passwordFile);
 
     switch (depth()) {
 #ifdef QT_QWS_DEPTH_32
